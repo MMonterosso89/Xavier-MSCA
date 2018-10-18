@@ -1,0 +1,323 @@
+---
+title: "BAIS 660-01 Exam 1"
+author: "Matthew Monterosso"
+date: "October 15, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# {.tabset}
+```{r include=FALSE, echo=FALSE, cache=FALSE}
+library(tidyverse)
+# Loads dplr for selecting, filtering, mutating etc and magrittr for piping
+library(DT)
+# HTML / Markdown friendly data js table
+library(lubridate)
+#Time parsing functinality
+library(RColorBrewer)
+# For NLP
+library(tm)
+#More NLP
+library(wordcloud)
+# Make a wordcloud!
+
+# Load in completed investigation df
+Completed_Investigtion <- read_csv("http://asayanalytics.com/breach_archive_csv")
+# Load in ongoing ongoing investigation df
+Ongoing_Investigation <- read_csv("https://asayanalytics.com/breach_investigation_csv") 
+
+# Add new column for
+Completed_Investigtion$Status = "Complete"
+
+Ongoing_Investigation$Status = "Ongoing"
+
+All_Investigations <- rbind(Completed_Investigtion,Ongoing_Investigation)
+
+
+All_Investigations <- All_Investigations[-c(795),]
+#Remove Duplicate Massive Anthem Leak 
+
+All_Investigations$`Web Description` <- All_Investigations$`Web Description` %>%
+  str_replace_all(fixed("\\N"), replacement = NA)
+
+All_Investigations$`Web Description` <- All_Investigations$`Web Description` %>%
+  str_replace_all(fixed("\\"), replacement = NA)
+
+# Normalize the NA values for the web description col
+
+All_Investigations <- All_Investigations %>%
+  filter(!is.na(`Name of Covered Entity`)) %>%
+  filter(!is.na(State)) %>%
+  filter(!is.na(`Covered Entity Type`)) %>%
+  filter(!is.na(`Individuals Affected`)) %>%
+  filter(!is.na(`Breach Submission Date`)) %>%
+  filter(!is.na(`Type of Breach`)) %>%
+  filter(!is.na(`Location of Breached Information`)) %>%
+  filter(!is.na(`Business Associate Present`))
+
+# Filter all rows containing NA in any column excepting for Web Description
+# since massive portions of it are NA and not super useful for analysis 
+
+All_Investigations$`Breach Submission Date`<- mdy(All_Investigations$`Breach Submission Date`,tz = "America/Indianapolis")
+
+# Convert Dates from String to time format with lubridate package - Loaded previously
+
+```
+
+
+
+## Project Description
+This markdown file was created to explore the US Department of Health and Human Services (HHS) in the Office for Civil Rights (OCR) concerning data breaches of Covered Entities which affect more than 500 persons. The data frame is from 2009 to present, and exists as follows:
+
+*	Name of the covered entity (Organization responsible for the PHI)
+*	State (US State where the breach was reported)
+*	Covered Entity Type (Type of organization responsible for the PHI)
+*	Individuals Affected (Number of records affected by the breach)
+*	Breach submission date (Date the breach was reported by the CE)
+*	Type of breach (how unauthorized access to the PHI was obtained)
+*	Location of breached information (Where was the PHI when unauthorized access was obtained)
+*	Business associate present (Was a business associate such as a consultant or contractor involved in the breach)
+*	Web description (A optional statement explaining what happened and the resolution)
+* Status (if the report is completed or ongoing)
+
+In this markdown we will use this data to explore when, where, and how these breaches occur most often in attempt to focus efforts on better preventing them in the future. We will primariy be performing time series analysis on those affected and those who were breached. This will utimately help the common health customer in restoring confidence in the safety of healthcare data, improve customer relationship, and undoubtedly drive costs down.
+
+## Searchable Table / Cleaning Description
+Note that the Web Description has been redacted from this table as it is in long paragraph form and not suitable for tabularizing attractively. Duplicates and all rows with missing data excepting for the Web Description Column have also been expunged. Variable that are mainly of concern are type of breach and location of breach. These are categorical and due to the fact that there are many AND multple modes of breach can be listed together, this makes faceting very diffucult and generally non-aesthetically pleasing. A facet grid of 30*72 is certainly non-human interpretable. Generally speaking, there are only 2 numeric variables and two others which can be elegantly encoded. Analysis is somewhat difficult. 
+
+```{r}
+(n_distinct(All_Investigations$`Type of Breach`))
+```
+```{r}
+(n_distinct(All_Investigations$`Location of Breached Information`))
+```
+
+
+```{r echo=FALSE, warning=FALSE}
+datatable(data=All_Investigations[,-9])
+```
+
+
+## High Level Overview
+
+From this chart we see a steady increase in data breaches occuring over the 
+last decade.  
+
+```{r echo=FALSE}
+All_Investigations %>%
+  select(`Breach Submission Date`) %>%
+  ggplot(aes(year(`Breach Submission Date`))) +
+  geom_bar() +
+  ylab("Number of Breaches Affecting 500+ Reported") +
+  xlab("Year Breach Ocurred") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  ggtitle("Large Breaches Per Year Since 2009")
+```
+  
+Despite this, if we check yearly averages, we see that breach sized peaked in 2014. This chart is a bit misleading however, as this chart has removed all breaches beyond 95% percentile (65,000+ Affected). A handful of VERY large breaches occured in 2015.  
+
+```{r echo=FALSE}
+All_Investigations %>%
+  select(`Breach Submission Date`,`Individuals Affected`) %>%
+  filter(`Individuals Affected` < quantile(`Individuals Affected`,.95)) %>%
+  ggplot(aes(year(`Breach Submission Date`),`Individuals Affected`)) +
+  stat_summary(fun.y="mean", geom="bar") +
+  geom_col() +
+  ylab("Average Breach Size") +
+  xlab("Year") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  ggtitle("Average Individuals Affected Per Year Since 2009",subtitle = "Outliers beyond 95th percentile removed") 
+  
+
+
+```
+
+## Worst Breaches 
+
+Expanding upon this idea, let's explore when and where the most severe (99th Percentile) has occured.
+
+```{r echo=FALSE}
+All_Investigations %>%
+  filter(`Individuals Affected` > quantile(`Individuals Affected`,.99)) %>%
+  datatable(data = .[,-9],caption = "Worst Modern Data Breaches")
+```
+
+As we can see, the largest 3 breaches were Hacking related. Let's filter out all other forms of breach and explore those. We see what looks like an exponential rise in hacking incidents since 2010!
+```{r echo=FALSE}
+All_Investigations %>%
+  select(`Breach Submission Date`,`Type of Breach`) %>%
+  filter(`Type of Breach` == "Hacking/IT Incident") %>%
+  ggplot(aes(year(`Breach Submission Date`)),`Type of Breach`) +
+  geom_bar() +
+  ylab("Number of Hacking/IT Related Breaches") +
+  xlab("Year") +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  ggtitle("Hacking/IT Breaches")
+```
+
+
+We can also create a small table to explore how many breaches occured by what entity type, by year. From this, it is easily shown that Healthcare providers exhibit the highest number of leaks annually.
+
+```{r echo=FALSE}
+All_Investigations %>%
+  group_by(`Covered Entity Type`, year(`Breach Submission Date`)) %>%     summarize(count=n()) %>%
+  datatable(.)
+```
+
+This bar chart shows the bulk of breaches are submitted on Friday, which is a logical workweek duedate.  
+
+```{r echo=FALSE}
+All_Investigations %>%
+  select(`Breach Submission Date`) %>%
+  ggplot( aes(wday(`Breach Submission Date`))) +
+  geom_bar() +
+  ggtitle("Breach Submissions by weekday") +
+  ylab("Breach Count") +
+  xlab("Weekday")
+
+# Callinf x_discrete and naming the weekdays refuses to work 
+```
+
+
+From this faceted bar chart by breach type we can see quite clearly that most Hacking and Unauthoized Access are truly the only forms of breach that are very heavily on the rise. Enchancing CE orgnizations cyber security protocols is strongly recommended.  
+
+```{r echo=FALSE}
+All_Investigations %>%
+  select(`Breach Submission Date`,`Type of Breach`) %>%
+  ggplot(aes(year(`Breach Submission Date`))) +
+  geom_bar()+
+  facet_wrap(~`Type of Breach`) +
+  ggtitle("Breach Incidents",subtitle = "Faceted by Type") +
+  xlab("Year")+
+  ylab("Count of Breaches")
+```
+
+
+
+
+## WordCloud Comparisons
+  
+Let's compare the fall of theft and the rise of Hacking through some wordclouds, which will aggregate the most commonly used words in the Web Description column, when available.  
+
+```{r echo=FALSE, warning=FALSE}
+
+Hacking <- All_Investigations %>%
+  select(`Type of Breach`,`Web Description`) %>%
+  filter(!is.na(`Web Description`)) %>%
+  filter(`Type of Breach` == "Hacking/IT Incident")
+# Piping was simply not working here pls have mercy
+
+wordcloud(Hacking$`Web Description`, max.words = 25)
+  
+
+```
+  
+  Now for theft: At a glance, we see the word "laptop" incuded in this wordcloud, which is not in the Hacking cloud. This likely alludes to the fact that laptop theft with PHI stored on it must be reported as a breach, even if the thieves have no desire for that information.  
+  
+```{r echo=FALSE, warning = FALSE}
+Theft <- All_Investigations %>%
+  select(`Type of Breach`,`Web Description`) %>%
+  filter(!is.na(`Web Description`)) %>%
+  filter(`Type of Breach` == "Theft")
+# Piping was simply not working here pls have mercy
+
+wordcloud(Theft$`Web Description`, max.words = 25)
+```
+
+
+## Seasonality / Targeted States
+
+Let's get a bit creative and explore some more options. I'd like to check seasonality of breaches by month. We see a marked increase in breaches in spring, which is interesting to note.
+
+```{r echo=FALSE}
+All_Investigations %>%
+  select(`Breach Submission Date`) %>%
+  ggplot(aes(month(`Breach Submission Date`))) +
+  geom_bar() +
+  scale_x_continuous(breaks = scales::pretty_breaks(n = 12)) +
+  ylab("Count of Breaches") +
+  xlab("Month Number") +
+  ggtitle("Seasonality of Breaches",subtitle = "Breach Count by Month")
+```
+
+We can also facet our breaches by state to explore where these breaches have occured. From this somewhat crowded chart, we are alluded to the fact that extremely large attacks occured in Indiana in 2015. Was this relatively smaller midwestern city an easier target?
+```{r echo=FALSE}
+All_Investigations %>%
+  select(`Breach Submission Date`,`Individuals Affected`,`State`) %>%
+  filter(`Individuals Affected` > quantile(`Individuals Affected`,.95)) %>%
+  ggplot(aes(year(`Breach Submission Date`),`Individuals Affected`)) +
+  stat_summary(fun.y="mean", geom="bar") +
+  geom_col() +
+  facet_wrap(~`State`) +
+  ylab("Average Breach Size") +
+  xlab("Year") +
+  ggtitle("States with Largest Breaches per year",subtitle = "65k+ Affected") 
+```
+
+## Associate Liability
+
+Let's explore if business associates are a liability:
+Thankfully we see that associates are normally not present, and there is no strong correlation to be made with breach size if they are.  
+
+```{r echo=FALSE}
+All_Investigations %>%
+  select(`Individuals Affected`, `Business Associate Present`,`Breach Submission Date`) %>%
+  filter(`Individuals Affected` < quantile(`Individuals Affected`,.68)) %>%
+  ggplot(aes(year(`Breach Submission Date`),`Individuals Affected`)) +
+  geom_jitter() +
+  facet_wrap(~`Business Associate Present`) +
+  ggtitle("Individuals Affected Per Year",subtitle = "Faceted by Business Associate Being Present, and within 1sd of average") +
+  xlab("Year")
+```
+
+## Where Breach Occurs
+
+Lets explore where breaches most often occurs pre and post the "Hacking Boom":
+
+```{r echo= FALSE}
+All_Investigations %>%
+  filter(year(`Breach Submission Date`) <= 2015) %>%
+  filter(`Location of Breached Information` %in% c("Laptop","Email","Paper/Films","Network Server", "Desktop Computer")) %>%
+  filter(`Individuals Affected` < quantile(`Individuals Affected`,.95)) %>%
+  ggplot(aes(year(`Breach Submission Date`),`Individuals Affected`)) +
+  geom_jitter() +
+  facet_wrap(~`Location of Breached Information`) +
+  ggtitle("Top types of Beach Occurences 2009 - 2015")
+```
+  
+  
+  
+```{r echo= FALSE}
+
+All_Investigations %>%
+  filter(year(`Breach Submission Date`) >= 2016) %>%
+  filter(`Location of Breached Information` %in% c("Laptop","Email","Paper/Films","Network Server", "Desktop Computer")) %>%
+  filter(`Individuals Affected` < quantile(`Individuals Affected`,.95)) %>%
+  ggplot(aes(year(`Breach Submission Date`),`Individuals Affected`)) +
+  geom_jitter() +
+  facet_wrap(~`Location of Breached Information`) +
+  ggtitle("Top types of Beach Occurences 20015 - Present")
+# Ideally these would be overlayed and normalized but I can't get it working bc
+# I can't code good.
+```
+
+## Report Durations
+
+ Let's also take a peek at how long reports take to complete. We see the data is somewhat normal, with most report taking 5 years to complete! We also see a large amount of incoming reports which are still ongoing.  
+
+```{r echo=FALSE, warning = FALSE}
+All_Investigations %>%
+  select(`Breach Submission Date`,`Status`) %>%
+  mutate(Elapsed = interval(`Breach Submission Date`,now())/29030400) %>%
+  ggplot(aes(x = Elapsed,fill=`Status`)) +
+  geom_histogram(bins = 20, position="dodge")+
+  theme(legend.position="top") +
+  xlab("Time Elasped Since Reported, years") +
+  ylab("Count") +
+  ggtitle("Time to Complete Reports", subtitle = "Colored by Status")
+  
+```
+
