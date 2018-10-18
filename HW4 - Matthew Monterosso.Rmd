@@ -1,0 +1,153 @@
+---
+title: "HW4 - Matthew Monterosso"
+author: "Matthew Monterosso"
+date: "September 25, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, fig.align = "center")
+Math_Perf_df <- read.csv("https://asayanalytics.com/Monterosso-data",sep=";", header = TRUE)
+```
+
+# {.tabset}
+
+
+##  Initial EDA
+
+This is an R Markdown for BAIS 660-01 Week 5 Assignment
+
+This markdown file looks at metrics for school performance in Portuguese high school students
+
+Attribute info at https://archive.ics.uci.edu/ml/datasets/Student+Performance
+
+Visualizing Performance
+
+Let's examine the data
+
+```{r, include=FALSE,cache=FALSE,echo=FALSE}
+Math_Perf_df <- read.csv("https://asayanalytics.com/Monterosso-data",sep=";", header = TRUE)
+
+library(tidyverse)
+library(DT)
+
+
+
+
+
+```
+```{r echo=FALSE}
+Male_Perf_df <- Math_Perf_df %>%
+  filter(sex == 'M', G3 > 0) %>%
+  group_by(age) %>%
+  summarise(AvgScore = mean(G3, na.rm = TRUE)) %>%
+  arrange(desc(AvgScore))
+
+datatable(Male_Perf_df,caption = 'Male Scores by Age')
+
+Female_Perf_df <- Math_Perf_df %>%
+  filter(sex == 'F', G3 > 0) %>%
+  group_by(age) %>%
+  summarise(AvgScore = mean(G3, na.rm = TRUE)) %>%
+  arrange(desc(AvgScore))
+
+datatable(Female_Perf_df, caption = 'Female Scores by Age')
+
+
+
+```
+Why do 20 year old females do insanely better than thier peers? What is the story there?
+```{r echo=FALSE}
+ggplot(data = Math_Perf_df, aes(x = G3)) +
+  geom_histogram(binwidth = 1.5)+
+  labs(title = "Histogram of student scores",
+       x = "Student Score",
+       y = "Count")
+```
+
+
+Here we see the data is mostly normal excepting for the students which scored 0
+
+## Parental Help
+```{r echo=FALSE}
+
+Parental_df <- Math_Perf_df %>%
+select(school,G3,age,Pstatus,guardian)
+
+ggplot(data = Parental_df, aes(x = age, y = G3, color = guardian)) +
+  geom_jitter() +
+  facet_grid(school ~ Pstatus) +
+   labs(title = "Age vs Final Score by School and Parental Status",
+           x = "Age",
+           y = "Final Score")
+
+```
+
+
+ Above we see a grid examining effect of Parental Status (A for Alone, T for together) and school system attended showing individual plots of age vs final score. Guardian type shown via color.
+
+## Parental Job
+```{r echo=FALSE}
+Parental_df2 <- Math_Perf_df %>%
+select(age,Mjob, Fjob, G3,famsize)
+
+
+ggplot(data = Parental_df2, aes(x = age, y = G3, color = famsize)) +
+  geom_jitter(alpha = .5) +
+  facet_grid(Mjob ~ Fjob)
+```
+
+ This plot shows a grid of Mother (yaxis) and Father (xaxis) job types showing scatters of age vs final score, color coded by family size ( <= 3 or > 3)
+
+
+ 
+## Support System 
+```{r echo=FALSE}
+
+Leg_Up_df <- Math_Perf_df %>%
+transmute(Leg_Up = Medu + Fedu + ifelse(schoolsup =='yes',1,2) + ifelse(famsup =='yes',1,2) 
++ ifelse(paid=='yes',1,2) + ifelse(activities=='yes',1,2) + ifelse(nursery=='yes',1,2) 
++ famrel + freetime + health,G3)
+
+ggplot(data = Leg_Up_df, aes(x = Leg_Up, y = G3)) +
+  geom_jitter(alpha = .55)  +
+  geom_smooth(method = "lm") +
+  ggtitle("Leg up Score vs Final Score", subtitle = "Naive summation of all facors that would help a student to succeed")
+```
+It is good to see a positive slope here, but it is perhaps far less steep than I would have expected.
+
+
+## Access to the World Wide Web
+```{r echo=FALSE}
+
+Internetz_df <- Math_Perf_df %>%
+  select(G3,internet,G1,G2,age) %>%
+  mutate(AvgPerf = (G1+G2+G3)/2) %>%
+  select(AvgPerf,G3,age,internet) %>%
+  filter(AvgPerf > 5, age < 19)
+  
+ggplot(data = Internetz_df, aes(x = age, y = AvgPerf, color = internet)) +
+  geom_jitter(alpha = .8)  +
+  geom_smooth(method = "lm") +
+  ggtitle("Age vs Average Student Performance", subtitle = "Color coded by access to internet")
+```
+Interesting to see a negative trend average score across the full year with internet access having close to no bearing, although they do score slightly higher overall. Confidence intervals overlaps, so we can't say much for sure.
+
+
+## Do they party and skip?
+```{r echo = FALSE}
+GripNSip_df <- Math_Perf_df %>%
+  select(G3,Dalc,Walc,absences, health) %>%
+  mutate(TotAlc = Walc + Dalc) %>%
+  select(TotAlc,G3,absences,health) %>%
+  filter(absences > 3)
+
+ggplot(data = GripNSip_df, aes(x = absences, y = G3, color = TotAlc )) +
+  geom_jitter(aes(colour = z2))  +
+  geom_smooth(method = "lm") +
+  facet_wrap(~health) +
+  ggtitle("Faceted health code showing absences vs final score", subtitle = "Color coded by total alcohol consumption")
+
+```
+This monstrostiy shows a facet of health codes (1 very bad health to 5 perfectly healthy) showing scatters of absences vs final score with and overlayed linear model and a color scheme of dark to light (counterintuitive?) showing level of total weekly alcohol consumption. As expected negative trends for missing large amounts of class, although it is difficult to acertain the effect of alcohol with this method as no solid clusters are of note.
+ 
