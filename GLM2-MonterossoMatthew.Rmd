@@ -1,0 +1,110 @@
+---
+title: "BAIS 660 GLM 2"
+author: "Matthew Monterosso"
+date: "November 20, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=FALSE,echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(corrplot)
+library(car)
+library(lm.beta)
+bikeshare <- read_csv("http://asayanalytics.com/bikeshare_csv")
+bikeshare$totalriders <- bikeshare$registered + bikeshare$casual
+```
+
+# {.tabset}
+
+##Q1,2,3
+
+Since many variable are associated with time in one way or another, let's first do a simple time series of rider by month (season and holidays can be implied from this in some capacity)
+
+1.	You want to build the best regression model possible for the dependent variable, total riders. Begin with the example from class where we fit total riders as a function of temperature using a third-degree polynomial. Add additional variables from the dataset as you consider appropriate. Remember, your goal is to build the best fitting regression model explaining total ridership, using the tools we have covered regarding the linearity and multicollinearity assumptions.
+
+
+
+2.	Regarding your model from Q1, did you find any problems with the assumptions of multicollinearity or linearity in this regression? If so, how did you address them? If not, why are you not concerned?
+
+Multicollinearity was handled by removing predictors with massive VIF such as season vs month (season ommitted). Others such temperature and month were left in the model, as although they are heavily correllated they provide additional predictive power. Curvilinear relationshops we corrected by adding a polynomical fit, similar to temperature.
+
+3.	Your model from Q1 should include some means of assessing the impact the month of the year has on total ridership. Using your regression output, which month has the highest number of riders, holding everything else constant? What if this month became unseasonably cold and rainy? Would it change the coefficient on this month in any way? 
+
+Exploring the summary coefficients of the model, we see that October has the highest amount of riders at +1327 (Compared to January). We however see that even light rain or snow completely cancels out this with -1479 riders (vs clear weather).
+
+
+```{r echo=FALSE}
+
+plot(bikeshare$mnth)
+plot(bikeshare$Promotion)
+
+
+bikeshare %>%
+    gather(key,value, casual, registered) %>%
+    ggplot(aes(x=mnth, y=value, colour=key)) +
+    geom_jitter()
+
+
+
+bikesharelm1 <- lm(totalriders~poly(temp,3,raw=TRUE),data=bikeshare)
+
+summary(bikesharelm1)
+
+crPlots(bikesharelm1)
+
+
+bikesharelm2 <- lm(totalriders~poly(temp,3,raw=TRUE)+as.factor(Promotion) + as.factor(mnth) + as.factor(holiday)+as.factor(weekday)+as.factor(weathersit) + poly(humidity,2,raw = TRUE)+windspeed,data=bikeshare)
+
+summary(bikesharelm2)
+
+vif(bikesharelm2)
+crPlots(bikesharelm2)
+```
+
+
+##Q4,5,6
+
+4.	Interpret (in simple terms) the coefficient on your "promotion" variable and make an initial judgement on the claims of the marketing department based on your analysis.
+
+Again looking at summary coefficients, we see that promotion corresponds to 1945 additional riders, the highest in the entire model. Thusly, promotion is the strongest single predictor of total ridership. It seems the claims of promotional success are founded.
+
+
+5.	You suspect the promotion might have influenced casual riders differently than the registered riders. Perform some type of analysis that allows you to assess if the program had a more substantial impact on the casual riders or the registered riders. What is your conclusion, and why? Include any data or screenshots to back up your claim. 
+
+Checking summary again on the exact same models with casual and registered riders as opposed to total riders, we see coefficients of +270 for casual and +1765 for registered. When compared to population averages,these equate to 32% vs 48% increases for casual and registered, respectively.log/log-ing the model would show leverages. Finally, we can use lm.beta to "normalize" all predictors in to sd change per 1 sd change in our indepent variable. Examining this, it shows presence of promotion showing .4sd change for casual, but 1.08sd change for registered! With this in mind, it seems blatant that those who are registered for the bikeshare program respond better to promotion. A business explanation for this could simply be awareness; those who are registered are likely recieving word of these promotions via smartphone app. Another could be that promotional discount is additive and not multiplicative, resulting in totally imba deals (pls nerf). I would reccommend heavier marketing in sectors that will reach casual riders, or reworking the pricing model ( .5 *.7 = 35% promo discount for registered, this ain't a charity).
+
+
+6.	With your analysis from questions 4 and 5 now in-hand, you are prepared to report on the promotion's influence on ridership to the CAO. However, you lack some information required to make a meaningful report on whether the promotion was a financial success or a failure.  What additional information (from a business perspective) do you need to accurately make such a conclusion? 
+
+To determine financial success, we would need additional metrics such as price per rental(base), cost of maintenance, cost of bike replacements, staff cost per month, legal, ect to determine if suitable profit is being made (if any). Promotional surge in volume which we have proven would also spike these operational costs.
+
+
+
+```{r echo=FALSE}
+bikesharelm3 <- lm(casual~poly(temp,3,raw=TRUE)+as.factor(Promotion) + as.factor(mnth) + as.factor(holiday)+as.factor(weekday)+as.factor(weathersit) + poly(humidity,2,raw = TRUE)+windspeed,data=bikeshare)
+
+summary(bikesharelm3)
+
+
+
+bikesharelm4 <- lm(registered~poly(temp,3,raw=TRUE)+as.factor(Promotion) + as.factor(mnth) + as.factor(holiday)+as.factor(weekday)+as.factor(weathersit) + poly(humidity,2,raw = TRUE)+windspeed,data=bikeshare)
+
+summary(bikesharelm4)
+
+#Compares in same unit - sd. For factors multiply by 2!
+#ex 1sd in windspeed lowers y by -0.12 sd. 
+lm.beta(bikesharelm3)
+
+lm.beta(bikesharelm4)
+
+
+270/mean(bikeshare$casual)
+1765/mean(bikeshare$registered)
+
+```
+
+
+
+
+
