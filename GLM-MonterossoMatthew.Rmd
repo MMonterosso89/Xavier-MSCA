@@ -1,0 +1,252 @@
+---
+title: "BAIS 660 GLM"
+author: "Matthew Monterosso"
+date: "November 6, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE, cache=FALSE,echo=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(tidyverse)
+library(stargazer)
+library(corrplot)
+library(DT)
+library(car)
+df <- read_csv("http://asayanalytics.com/telework_csv")
+```
+
+# {.tabset}
+
+
+
+## The Data
+ As you can see from the searchable table below, the dataset is quite wide, with
+ [24 encoded variables](https://drive.google.com/file/d/11p5Wavey4UymaQy1xRCpRCqU6fAyswO-/view?usp=sharing), continuous weekly pay and age parameters, and a boolean of whether or not a person telecommunicates for work, known as remote in more modern terms.
+
+Also plotting our weekly earning variable we see that there is some form of pattern existing in the middle of the data
+
+```{r echo = FALSE}
+datatable(data=df)
+
+plot(df$weekly_earnings)
+```
+
+## One Way Analysis of Variance (ANOVA)
+
+1.	Using a simple one-way ANOVA, answer the following questions:
+a.	Does Teleworking appear to have a significant effect on income? How do you know, and explain the effect (if it exists.)
+
+Interpreting this naive linear model, we can say with a large degree of certainty due to miniscule p-value that telecommunicating appears to affect annual salary. I have converted weekly income to annual salary for numbers that are more intuitive. Looking at the summary and analysis of variance of this linear model, at face value telecommunicators seem to make 18.2k more per year, with about 2k of variance.
+
+b.	Provide a visualization that helps a reader understand the model
+
+See the box plot below, as explained previously the mean is 18k higher, in addition to a much greater AND wider Q3. Although the max for both is roughly similar, we see that the plotting software has flagged roughly half of non-telecommute Q4 top as outliers, where none exist for telecommunicators.
+
+c.	Provide at least two explanations for why this is considered a naïve model.
+
+This is an extremely naive model because it only contains one predictor when the data set contains dozens. Even still an uncountable number exist beyond that. Beyond this we can say this is naive as it does not consider any form of cofounding variable. Also our R^2 is extremely poor, at .05 
+
+```{r echo=FALSE}
+
+df_LM <- lm((df$weekly_earnings)*52~as.factor(df$telecommute))
+summary(df_LM)
+
+df_aov <- aov((df$weekly_earnings)*52~as.factor(df$telecommute), data = df)
+
+TukeyHSD(df_aov)
+
+df %>%
+  ggplot(aes(x=as.factor(telecommute),y=weekly_earnings*52))+
+  geom_boxplot()+
+  ylab("Annual Salary") +
+  xlab("Yes/No")
+```
+
+## Two Way ANOVA
+
+2.	Using a two-way ANOVA, create a hierarchical variation on your result from Q1 by adding another factor variable and answer the following questions:
+
+a.	Explain your model design. Why did you use this additional factor variable compared to others?
+
+I have chosen detailed_industry as I believe this will be highly predictive of salary. For reasons beyond the scope of this project (run a regression on that!), some industries such as banking, BI, etc tend to make significantly higher salaries than labor based positions. I have also tested variance inflationary factor to show that multicolinearity is not an issue, with a VIF of around 1. 
+
+b.	Interpret the results of your model. Do you consider this a naïve model? Why or why not?
+
+This is no longer a naive model, as we have now considered interaction effects as well. This consider intersections of the predictors where a naive model will not.
+
+c.	Provide a visualization that helps a reader understand the model
+
+While not great for human interpretation due to quantitiy of information and the encoded categorical nature, we can visually cluster vertically and see that overall, remote workers make more across all industries. We  also see some industries such as computer/ IT industries and have much high salaries.
+
+d.	Test the difference between your model from Q1 and your model in Q2. Is there an improvement in fit? How do you know?
+
+Using the annova function, we can see that our RSS has reduced and with a very low p value, the models are significantly different. In particular we see that industries 8 and 28 are highly predictive (Computing based industries).
+
+
+
+```{r echo=FALSE}
+df_LM2 <- lm((df$weekly_earnings)*52~as.factor(df$telecommute)+as.factor(df$detailed_industry) + as.factor(df$telecommute)*as.factor(df$detailed_industry))
+
+df_LMtest <- lm((df$weekly_earnings)*52~as.factor(df$telecommute)+as.factor(df$detailed_industry))
+
+vif(df_LMtest)
+crPlots(df_LMtest)
+
+summary(df_LM2)
+
+df_aov2 <- aov(df_LM2)
+
+TukeyHSD(df_aov2)
+
+anova(df_LM,df_LM2)
+
+df %>%
+  ggplot(aes(x=as.factor(detailed_industry),y=weekly_earnings, color = as.factor(df$telecommute)))+
+  geom_point()+
+  geom_smooth(method = "lm")
+```
+
+
+## General Linear Modeling
+
+3.	Build a simple regression model estimating weekly earnings by hours worked. Do not make any transformations at this point-only generate a naïve model and answer the following questions:
+
+a.	Write the generalized form of the regression using beta notation
+
+Yhat = beta-subzero + beta-subone * X-sub-i
+
+Which for our specific model equates to
+
+Weekly pay = weekly pay with 'no' age + AgeCoefficient (slope) * Age at specific observation
+
+b.	Write the estimated form of the regression using your results
+
+After creating this simple linear model we see that 
+
+Weekly Pay = 549 + 9.2 * Age
+
+c.	Provide at least 3 explanations for why we would consider this a naïve model.
+
+A few considerations for why this is naive. Doing a simple plot of weekly earnings vs age will show that the data is extremely heteroscedastic, in addition to being slightly curvilinear at the densest portions. This is in line with intuition and previous knowledge that earning potential begins to decline slightly with age in many industries due to reduced physical capabilities, often reduced desire to learn, and less value to a company as they will retire sooner. I would also consider this model naive as visually we see it fits the data extremely poorly, which we can also explain numerically through an R^2 of .04 ( only 4% of variance explained!)
+
+d.	In your opinion, what do you think should be done to better model these two variables or do you think it does not make sense to model one as a function of the other under any circumstances? Provide a visualization to support your position.
+
+To improve this pretty terrible model, we can try a log transformation! After some testing, I woud found log-log would improve the model most - by 1% in terms of R^2. Despite improvement, the model is still very poor and has little explanatory power.
+
+
+```{r echo=FALSE}
+
+regEarnxHour <- lm(df$weekly_earnings~df$age)
+
+summary(regEarnxHour)
+
+df %>%
+  ggplot(aes(x=df$age,y=df$weekly_earnings))+
+  geom_point()+
+  geom_smooth(method = "lm")
+
+
+
+regLogEarnxLogHour <- lm(log(df$weekly_earnings)~log(df$age))
+
+summary(regLogEarnxLogHour)
+
+df %>%
+  ggplot(aes(x=log(df$age),y=log(df$weekly_earnings)))+
+  geom_point()+
+  geom_smooth(method = "lm")
+
+```
+
+## Adding a variable
+
+4.	Build a multi-variate regression model estimating weekly earnings as a function of age. Do not make any transformations at this point-only generate a naïve model and answer the following questions:
+a.	Write the generalized form of the regression using beta notation
+
+Yhat = beta-subzero + beta-subone * X-sub-i + beta-subtwo * X-sub-i +betasub-n * X-sub-n ...
+
+b.	Write the estimated form of the regression using your results
+
+Weekly Pay = 549 + 9.2 * Age + coefficient * factorvalue-predictor-n + ...
+
+c.	Provide at least 3 explanations for why this is considered a naïve model.
+
+1. A few cannot predictors cannot explain this phenomenon
+2. We are not testing for linearity/heteroscedasity
+3. We have not transformed any either variable for a better fit
+
+
+d.	Test the linearity assumption of this model. Provide output of the tests you run to assess linearity and comment on the results. 
+e.	Identify at least 3 other possible concerns regarding this model beyond those inherent in the naïve design. For each possible concern, comment on how you would assess and address the concern.
+
+Using the Component + Residual plots, we can see the relationships of the predictors I have chosen. Looking at age (our only continuous variable), we can see that our naive linear fit is underpredicting for nearly all ages but mid 40s! The residuals show that we would be much more accurate with a curvilinear fit (flattened upside down parabolic). This falls in line with previous expectations of earning potential lessening as an individual nears retirement. Looking at education, although encoded it has a natural order of higher number equating to higher eduction, therefore we can see a slight exponential increase. Geography and metropolitan predictors turned out to be somwhat weak in explanatory ability. To fit these concerns, I would:
+
+1. Apply a tranformation to age
+2.Remove geography and metro predictors
+3. Consider interaction effects
+
+
+
+```{r echo=FALSE}
+
+MultReg1 <- lm(df$weekly_earnings ~ df$age + as.factor(df$education) +as.factor(df$geography_region) + as.factor(df$metropolitan), data=df)
+
+
+summary(MultReg1)
+
+crPlots(MultReg1)
+
+```
+
+
+
+## Adding Even More
+
+5.	Modify your model from Q4 by adding at least 3 other IVs to the regression and transforming the age variable (and others) as necessary to meet the linearity assumption. Interpret your results and answer the following questions:
+a.	Write the generalized form of the regression using beta notation
+
+Yhat = beta-subzero + beta-subone * X-sub-i + beta-subtwo * X-sub-i +betasub-n * X-sub-n ...
+
+b.	Write the estimated form of the regression using your results
+
+Weekly earnings = -99 + 25.5*age - .22*age + an intractable number of factor estimates in the summary.
+
+c.	Do you suspect any of your independent variables are colinear? Explain why or why not.
+
+I do not, as VIF has been tested all are sitting safely at around 1.
+
+
+d.	Judging by your output, what ranges of values (for your DVs and the IV, weekly earnings) are you most comfortable using this model to estimate future observations?
+
+After testing a model which only includes a tranformed age, we can see fairly blatantly all others predictor are hurting the model quite a bit. Although our improved model doubles in R^2 compared to the original, it is still 30% less explanatory than tranformed age alone.
+
+
+e.	Generate a hypothetical observation that exists within the ranges specified in part d and estimate the weekly earnings for that individual. In addition to this estimate, calculate the estimated range of weekly earnings this individual may have and comment on the results.
+
+Using the predict.lm function, we are able to determine that a hypothtical 29 year old in the food mfg industry who works hourly for 60 hours a week can expect between 1188 and 1478 weekly pay (17-21/hour, with OT)
+
+
+
+```{r echo=FALSE}
+
+MultReg2 <- lm(weekly_earnings ~ poly(age,2,raw = TRUE) + as.factor(detailed_industry) + as.factor(hourly_non_hourly) + hours_worked, data=df)
+
+
+summary(MultReg2)
+
+vif(MultReg2)
+
+
+crPlots(MultReg2)
+
+aov(MultReg2)
+
+
+newdata1 <- data.frame(age=29, 
+     detailed_industry=14, 
+     hourly_non_hourly=1,
+     hours_worked=60)
+
+predict.lm(MultReg2, newdata1, interval = "confidence")
+
+```
